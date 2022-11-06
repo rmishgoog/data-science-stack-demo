@@ -28,6 +28,7 @@ terraform {
     google = {
       source                = "hashicorp/google-beta"
       version               = "4.38.0"
+      #Configure the alias here so it can be passed down to a child module through provider argument.
       configuration_aliases = [google.service_principal_impersonation]
     }
   }

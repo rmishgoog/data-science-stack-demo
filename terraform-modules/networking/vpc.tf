@@ -70,3 +70,19 @@ resource "google_compute_router_nat" "composer_vpc_regional_nat" {
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
   }
 }
+
+output "custom_vpc_network_id" {
+  value = google_compute_network.composer_vpc_network.id
+}
+
+output "custom_vpc_subnetwork_id" {
+  value = google_compute_subnetwork.composer_vpc_subnetwork.id
+}
+
+output "custom_vpc_network_name" {
+  value = google_compute_network.composer_vpc_network.name
+}
+
+output "custom_vpc_subnetwork_name" {
+  value = google_compute_subnetwork.composer_vpc_subnetwork.name
+}

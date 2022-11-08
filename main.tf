@@ -26,8 +26,8 @@
 terraform {
   required_providers {
     google = {
-      source                = "hashicorp/google-beta"
-      version               = "4.38.0"
+      source  = "hashicorp/google-beta"
+      version = "4.38.0"
       #Configure the alias here so it can be passed down to a child module through provider argument.
       configuration_aliases = [google.service_principal_impersonation]
     }
@@ -64,15 +64,15 @@ resource "time_sleep" "service_account_api_activation_time_delay" {
   create_duration = "120s"
   depends_on = [
     module.service-accounts
-  ]  
+  ]
 }
 
 #Ammend the required organization policies, composer creation will fail if OsLogin is not disabled
 module "org-policies" {
-  source      = "./terraform-modules/org-policies"
-  project     = var.project_id
+  source  = "./terraform-modules/org-policies"
+  project = var.project_id
 
-  providers = {google = google.service_principal_impersonation}
+  providers = { google = google.service_principal_impersonation }
   depends_on = [
     module.service-accounts,
     time_sleep.service_account_api_activation_time_delay
@@ -84,7 +84,7 @@ resource "time_sleep" "org_policy_change_activation_time_delay" {
   create_duration = "60s"
   depends_on = [
     module.org-policies
-  ]  
+  ]
 }
 
 module "networking" {
@@ -96,7 +96,7 @@ module "networking" {
   vpcsubnetworkname = var.vpcsubnetworkname
   subnetwork_cidr   = var.subnetwork_cidr
 
-  providers = {google = google.service_principal_impersonation}
+  providers = { google = google.service_principal_impersonation }
   depends_on = [
     module.org-policies
   ]
@@ -106,12 +106,15 @@ module "networking" {
 module "composer" {
   source = "./terraform-modules/composer"
 
-  project                  = var.project
-  project_id               = var.project_id
-  project_number           = var.project_number
-  region                   = var.region
-  vpcnetworkid             = data.google_compute_network.composer-vpc-network.id
-  subnetworkid             = data.google_compute_subnetwork.composer-vpc-sub-network.id
+  project        = var.project
+  project_id     = var.project_id
+  project_number = var.project_number
+  region         = var.region
+  #vpcnetworkid             = data.google_compute_network.custom-vpc-network.id
+  #subnetworkid             = data.google_compute_subnetwork.custom-vpc-sub-network.id
+  #Try to use outputs from networking module instead of the data blocks
+  vpcnetworkid             = module.networking.custom_vpc_network_id
+  subnetworkid             = module.networking.custom_vpc_subnetwork_id
   pod_ip_range             = var.pod_ip_range
   service_ip_range         = var.service_ip_range
   master_auth_cidr_name    = var.master_auth_cidr_name
@@ -120,27 +123,75 @@ module "composer" {
   composer_tenant_ip_range = var.composer_tenant_ip_range
   master_auth_network_cidr = var.subnetwork_cidr
 
-  providers = {google = google.service_principal_impersonation}
+  providers = { google = google.service_principal_impersonation }
   depends_on = [
     module.networking,
-    module.org-policies,
+    module.org-policies
+  ]
+}
+
+module "bastion-host-vm" {
+  source  = "./terraform-modules/bastion-host"
+  project = var.project
+  zone    = var.zone
+
+  network    = module.networking.custom_vpc_network_id
+  subnetwork = module.networking.custom_vpc_subnetwork_id
+  providers  = { google = google.service_principal_impersonation }
+
+  depends_on = [
+    module.networking,
     time_sleep.org_policy_change_activation_time_delay
   ]
 }
 
-data "google_compute_network" "composer-vpc-network" {
-  name    = var.vpcnetworkname
-  project = var.project
+module "dataproc-metastore" {
+  source = "./terraform-modules/dataproc-metastore"
+
+  project   = var.project
+  region    = var.region
+  network   = module.networking.custom_vpc_network_id
+  providers = { google = google.service_principal_impersonation }
   depends_on = [
-    module.networking
+    module.networking,
+    time_sleep.org_policy_change_activation_time_delay
   ]
+
 }
 
-data "google_compute_subnetwork" "composer-vpc-sub-network" {
-  name    = var.vpcsubnetworkname
-  project = var.project
-  region  = var.region
+module "dataproc-cluster" {
+  source = "./terraform-modules/dataproc"
+
+  project                 = var.project
+  region                  = var.region
+  network_name            = module.networking.custom_vpc_network_name
+  subnetwork_name         = module.networking.custom_vpc_subnetwork_name
+  subnetwork_cidr         = var.subnetwork_cidr
+  data_proc_metastore_svc = module.dataproc-metastore.dataproc_metastore_svc_name
+
+  providers = { google = google.service_principal_impersonation }
   depends_on = [
-    module.networking
+    module.networking,
+    time_sleep.org_policy_change_activation_time_delay,
+    module.dataproc-metastore
   ]
+
+
 }
+
+# data "google_compute_network" "custom-vpc-network" {
+#   name    = var.vpcnetworkname
+#   project = var.project
+#   depends_on = [
+#     module.networking
+#   ]
+# }
+
+# data "google_compute_subnetwork" "custom-vpc-sub-network" {
+#   name    = var.vpcsubnetworkname
+#   project = var.project
+#   region  = var.region
+#   depends_on = [
+#     module.networking
+#   ]
+# }
